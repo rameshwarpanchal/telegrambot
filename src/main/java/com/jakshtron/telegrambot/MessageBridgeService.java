@@ -17,9 +17,9 @@ public class MessageBridgeService {
     private final Map<Long, Long> sourceToTargetMessageMap =
             new ConcurrentHashMap<>();
 
-//     SOURCE AND TARGET GROUP IDs zero to hero channel id below
-    private static final long SOURCE_CHAT_ID = -1002560862430L;
-//    private static final long SOURCE_CHAT_ID = -1003944440181L;
+    //     SOURCE AND TARGET GROUP IDs zero to hero channel id below
+//    private static final long SOURCE_CHAT_ID = -1002560862430L;
+    private static final long SOURCE_CHAT_ID = -1003944440181L;
     private static final long TARGET_CHAT_ID = -1002523140853L;
 
     // Prevent duplicate forwarding
@@ -37,9 +37,7 @@ public class MessageBridgeService {
     public void processUpdate(String json) {
 
         try {
-
             JsonNode node = objectMapper.readTree(json);
-
             String type = node.path("@type").asText();
 
             // ONLY HANDLE NEW MESSAGES
@@ -48,12 +46,16 @@ public class MessageBridgeService {
             }
 
             JsonNode message = node.get("message");
-
             if (message == null) {
                 return;
             }
 
             long chatId = message.path("chat_id").asLong();
+
+            // LOGGING FOR SOURCE AND TARGET CHANNELS
+            if (chatId == SOURCE_CHAT_ID || chatId == TARGET_CHAT_ID) {
+                System.out.println("--- [" + (chatId == SOURCE_CHAT_ID ? "SOURCE" : "TARGET") + "] UPDATE ---");
+            }
 
             // ONLY SOURCE GROUP
             if (chatId != SOURCE_CHAT_ID) {
@@ -67,198 +69,121 @@ public class MessageBridgeService {
                 return;
             }
 
-            JsonNode content = message.get("content");
+            // =====================================
+            // 1. FIND REPLY TARGET FIRST (Moved Up)
+            // =====================================
+            Long targetReplyMessageId = null;
 
+            if (message.has("reply_to")) {
+                JsonNode replyTo = message.get("reply_to");
+                long sourceReplyMessageId = 0;
+
+                if (replyTo.has("message_id")) {
+                    sourceReplyMessageId = replyTo.get("message_id").asLong();
+                } else if (replyTo.has("reply_to_message_id")) {
+                    sourceReplyMessageId = replyTo.get("reply_to_message_id").asLong();
+                }
+
+                if (sourceReplyMessageId != 0) {
+                    targetReplyMessageId = sourceToTargetMessageMap.get(sourceReplyMessageId);
+                    System.out.println("SOURCE REPLY ID = " + sourceReplyMessageId);
+                    System.out.println("TARGET REPLY ID = " + targetReplyMessageId);
+                }
+            }
+
+            JsonNode content = message.get("content");
             if (content == null) {
                 return;
             }
 
             String contentType = content.path("@type").asText();
-
             String text = null;
-            // IGNORE EMPTY
-//            if (text == null || text.isBlank()) {
-//                return;
-//            }
+
+            // =====================================
+            // HANDLE PHOTO (NEW LOGIC)
+            // =====================================
+            if ("messagePhoto".equals(contentType)) {
+                JsonNode sizes = content.get("photo").path("sizes");
+                if (sizes.isArray() && sizes.size() > 0) {
+                    // Get the largest size
+                    JsonNode largestPhoto = sizes.get(sizes.size() - 1);
+                    String fileId = largestPhoto.path("photo").path("remote").path("id").asText();
+
+                    // Extract caption using your existing logic style
+                    JsonNode captionNode = content.get("caption");
+                    String caption = (captionNode != null && captionNode.has("text"))
+                            ? captionNode.get("text").asText() : "";
+
+                    System.out.println("FORWARDING PHOTO ID: " + fileId);
+                    sendPhoto(fileId, caption, targetReplyMessageId);
+                    return; // Stop here for photos
+                }
+            }
 
             // =====================================
             // NORMAL TEXT + TEXT WITH EMOJIS
             // =====================================
             if ("messageText".equals(contentType)) {
-
                 JsonNode textNode = content.get("text");
-
                 if (textNode != null) {
-
-                    // TDLib formattedText
                     if (textNode.has("text")) {
-
-                        text = textNode
-                                .get("text")
-                                .asText();
-
+                        text = textNode.get("text").asText();
                     } else {
-
                         text = textNode.asText();
                     }
                 }
             }
-
             // =====================================
-            // PHOTO CAPTION
+            // PHOTO CAPTION (Fallback for text extraction)
             // =====================================
             else if ("messagePhoto".equals(contentType)) {
-
                 JsonNode captionNode = content.get("caption");
-
-                if (captionNode != null
-                        && captionNode.has("text")) {
-
-                    text = captionNode
-                            .get("text")
-                            .asText();
+                if (captionNode != null && captionNode.has("text")) {
+                    text = captionNode.get("text").asText();
                 }
             }
-
             // =====================================
             // DOCUMENT CAPTION
             // =====================================
             else if ("messageDocument".equals(contentType)) {
-
                 JsonNode captionNode = content.get("caption");
-
-                if (captionNode != null
-                        && captionNode.has("text")) {
-
-                    text = captionNode
-                            .get("text")
-                            .asText();
+                if (captionNode != null && captionNode.has("text")) {
+                    text = captionNode.get("text").asText();
                 }
             }
-            // =====================================// ANIMATED EMOJI// =====================================
+            // =====================================
+            // ANIMATED EMOJI
+            // =====================================
             else if ("messageAnimatedEmoji".equals(contentType)) {
-
                 JsonNode emojiNode = content.get("emoji");
-
                 if (emojiNode != null) {
-
                     text = emojiNode.asText();
                 }
             }
             // =====================================
-// STICKER EMOJI
-// =====================================
-            else if ("messageSticker"
-                    .equals(contentType)) {
-
-                JsonNode stickerNode =
-                        content.get("sticker");
-
-                if (stickerNode != null
-                        && stickerNode.has("emoji")) {
-
-                    text = stickerNode
-                            .get("emoji")
-                            .asText();
+            // STICKER EMOJI
+            // =====================================
+            else if ("messageSticker".equals(contentType)) {
+                JsonNode stickerNode = content.get("sticker");
+                if (stickerNode != null && stickerNode.has("emoji")) {
+                    text = stickerNode.get("emoji").asText();
                 }
             }
 
-// =====================================
-// DEBUG LOGS
-// =====================================
-
-            System.out.println(
-                    "==============================");
-
-            System.out.println(
-                    "CONTENT TYPE = "
-                            + contentType);
-
-            System.out.println(
-                    "EXTRACTED TEXT = "
-                            + text);
+            // =====================================
+            // DEBUG LOGS & TEXT VALIDATION
+            // =====================================
+            System.out.println("==============================");
+            System.out.println("CONTENT TYPE = " + contentType);
+            System.out.println("EXTRACTED TEXT = " + text);
 
             if (text != null) {
-
-                text.codePoints()
-                        .forEach(cp ->
-                                System.out.println(
-                                        "UNICODE = "
-                                                + Integer
-                                                .toHexString(cp)
-                                )
-                        );
+                text.codePoints().forEach(cp ->
+                        System.out.println("UNICODE = " + Integer.toHexString(cp)));
             }
-            // IGNORE EMPTY
+
             if (text == null || text.isBlank()) {
                 return;
-            }
-            // =====================================
-// DEBUG LOGS
-// =====================================
-
-            System.out.println(
-                    "==============================");
-
-            System.out.println(
-                    "CONTENT TYPE = "
-                            + contentType);
-
-            System.out.println(
-                    "EXTRACTED TEXT = "
-                            + text);
-
-            if (text != null) {
-
-                text.codePoints()
-                        .forEach(cp ->
-                                System.out.println(
-                                        "UNICODE = "
-                                                + Integer
-                                                .toHexString(cp)
-                                )
-                        );
-            }
-
-            // =====================================
-            // FIND REPLY TARGET
-            // =====================================
-
-            Long targetReplyMessageId = null;
-
-            if (message.has("reply_to")) {
-
-                JsonNode replyTo = message.get("reply_to");
-
-                long sourceReplyMessageId = 0;
-
-                // TDLib structures
-                if (replyTo.has("message_id")) {
-
-                    sourceReplyMessageId =
-                            replyTo.get("message_id").asLong();
-                } else if (replyTo.has("reply_to_message_id")) {
-
-                    sourceReplyMessageId =
-                            replyTo.get("reply_to_message_id")
-                                    .asLong();
-                }
-
-                // LOOKUP TARGET MESSAGE ID
-                if (sourceReplyMessageId != 0) {
-
-                    targetReplyMessageId =
-                            sourceToTargetMessageMap
-                                    .get(sourceReplyMessageId);
-
-                    System.out.println(
-                            "SOURCE REPLY ID = "
-                                    + sourceReplyMessageId);
-
-                    System.out.println(
-                            "TARGET REPLY ID = "
-                                    + targetReplyMessageId);
-                }
             }
 
             System.out.println("=================================");
@@ -267,24 +192,54 @@ public class MessageBridgeService {
             System.out.println("=================================");
 
             // SEND MESSAGE
-            long targetMessageId =
-                    sendMessage(text, targetReplyMessageId);
+            long targetMessageId = sendMessage(text, targetReplyMessageId);
 
             // STORE SOURCE -> TARGET MAPPING
             if (targetMessageId != 0) {
-
-                sourceToTargetMessageMap.put(
-                        sourceMessageId,
-                        targetMessageId
-                );
-
-                System.out.println(
-                        "MAPPED SOURCE "
-                                + sourceMessageId
-                                + " -> TARGET "
-                                + targetMessageId);
+                sourceToTargetMessageMap.put(sourceMessageId, targetMessageId);
+                System.out.println("MAPPED SOURCE " + sourceMessageId + " -> TARGET " + targetMessageId);
             }
 
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void sendPhoto(String fileRemoteId, String caption, Long replyToMessageId) {
+        try {
+            ObjectNode root = objectMapper.createObjectNode();
+            root.put("@type", "sendMessage");
+            root.put("chat_id", TARGET_CHAT_ID);
+
+            if (replyToMessageId != null) {
+                ObjectNode replyNode = objectMapper.createObjectNode();
+                replyNode.put("@type", "inputMessageReplyToMessage");
+                replyNode.put("message_id", replyToMessageId);
+                root.set("reply_to", replyNode);
+            }
+
+            ObjectNode messageContent = objectMapper.createObjectNode();
+            messageContent.put("@type", "inputMessagePhoto");
+
+            // Use the remote file ID so TDLib doesn't have to re-upload the file
+            ObjectNode photo = objectMapper.createObjectNode();
+            photo.put("@type", "inputThumbnail"); // This is a trick to pass the ID
+            // Note: For remote files, you usually use inputFileRemote
+            ObjectNode inputFile = objectMapper.createObjectNode();
+            inputFile.put("@type", "inputFileRemote");
+            inputFile.put("id", fileRemoteId);
+
+            messageContent.set("photo", inputFile);
+
+            // Add the caption
+            ObjectNode formattedText = objectMapper.createObjectNode();
+            formattedText.put("@type", "formattedText");
+            formattedText.put("text", caption);
+            messageContent.set("added_caption", formattedText);
+
+            root.set("input_message_content", messageContent);
+
+            tdJsonService.send(objectMapper.writeValueAsString(root));
         } catch (Exception e) {
             e.printStackTrace();
         }
