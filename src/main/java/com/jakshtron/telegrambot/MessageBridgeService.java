@@ -17,9 +17,9 @@ public class MessageBridgeService {
     private final Map<Long, Long> sourceToTargetMessageMap =
             new ConcurrentHashMap<>();
 
-    // SOURCE AND TARGET GROUP IDs zero to hero channel id below
-//    private static final long SOURCE_CHAT_ID = -1002560862430L;
-    private static final long SOURCE_CHAT_ID = -1003944440181L;
+//     SOURCE AND TARGET GROUP IDs zero to hero channel id below
+    private static final long SOURCE_CHAT_ID = -1002560862430L;
+//    private static final long SOURCE_CHAT_ID = -1003944440181L;
     private static final long TARGET_CHAT_ID = -1002523140853L;
 
     // Prevent duplicate forwarding
@@ -76,9 +76,13 @@ public class MessageBridgeService {
             String contentType = content.path("@type").asText();
 
             String text = null;
+            // IGNORE EMPTY
+//            if (text == null || text.isBlank()) {
+//                return;
+//            }
 
             // =====================================
-            // TEXT MESSAGE
+            // NORMAL TEXT + TEXT WITH EMOJIS
             // =====================================
             if ("messageText".equals(contentType)) {
 
@@ -86,11 +90,13 @@ public class MessageBridgeService {
 
                 if (textNode != null) {
 
+                    // TDLib formattedText
                     if (textNode.has("text")) {
 
                         text = textNode
                                 .get("text")
                                 .asText();
+
                     } else {
 
                         text = textNode.asText();
@@ -139,9 +145,79 @@ public class MessageBridgeService {
                     text = emojiNode.asText();
                 }
             }
+            // =====================================
+// STICKER EMOJI
+// =====================================
+            else if ("messageSticker"
+                    .equals(contentType)) {
+
+                JsonNode stickerNode =
+                        content.get("sticker");
+
+                if (stickerNode != null
+                        && stickerNode.has("emoji")) {
+
+                    text = stickerNode
+                            .get("emoji")
+                            .asText();
+                }
+            }
+
+// =====================================
+// DEBUG LOGS
+// =====================================
+
+            System.out.println(
+                    "==============================");
+
+            System.out.println(
+                    "CONTENT TYPE = "
+                            + contentType);
+
+            System.out.println(
+                    "EXTRACTED TEXT = "
+                            + text);
+
+            if (text != null) {
+
+                text.codePoints()
+                        .forEach(cp ->
+                                System.out.println(
+                                        "UNICODE = "
+                                                + Integer
+                                                .toHexString(cp)
+                                )
+                        );
+            }
             // IGNORE EMPTY
             if (text == null || text.isBlank()) {
                 return;
+            }
+            // =====================================
+// DEBUG LOGS
+// =====================================
+
+            System.out.println(
+                    "==============================");
+
+            System.out.println(
+                    "CONTENT TYPE = "
+                            + contentType);
+
+            System.out.println(
+                    "EXTRACTED TEXT = "
+                            + text);
+
+            if (text != null) {
+
+                text.codePoints()
+                        .forEach(cp ->
+                                System.out.println(
+                                        "UNICODE = "
+                                                + Integer
+                                                .toHexString(cp)
+                                )
+                        );
             }
 
             // =====================================
