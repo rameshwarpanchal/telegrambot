@@ -29,7 +29,7 @@ public class TdJsonService {
             System.out.println(">>> TDLib Receive Thread started.");
             while (isRunning) {
                 // Poll for updates with a 10-second timeout
-                String update = TdJsonLibrary.INSTANCE.td_json_client_receive(client, 10.0);
+                String update = TdJsonLibrary.INSTANCE.td_json_client_receive(client, 0.1);
 
                 if (update != null && !update.isEmpty()) {
                     // Send every raw JSON string to the AuthHandler/Bridge logic
