@@ -6,6 +6,7 @@ import com.sun.jna.Pointer;
 
 public interface TdJsonLibrary extends Library {
     // Load the library (ensure tdjson.dll is in your project root or System32)
+
     TdJsonLibrary INSTANCE = Native.load("tdjson", TdJsonLibrary.class);
 
     // Core TDLib JSON functions
