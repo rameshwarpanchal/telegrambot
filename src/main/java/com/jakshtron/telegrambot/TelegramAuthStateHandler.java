@@ -118,21 +118,7 @@ public class TelegramAuthStateHandler {
         tdJsonService.send(json);
     }
 
-//    private void sendParameters() {
-//        String json = "{"
-//                + "\"@type\":\"setTdlibParameters\","
-//                + "\"parameters\":{"
-//                + "\"database_directory\":\"tdlib-db\","
-//                + "\"use_message_database\":true,"
-//                + "\"use_secret_chats\":false,"
-//                + "\"api_id\":" + API_ID + ","
-//                + "\"api_hash\":\"" + API_HASH + "\","
-//                + "\"system_language_code\":\"en\","
-//                + "\"device_model\":\"SpringBoot-Server\","
-//                + "\"application_version\":\"1.0\""
-//                + "}}";
-//        tdJsonService.send(json);
-//    }
+
 private void sendParameters() {
 
     String json = "{"
