@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 
 import java.util.Scanner;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Component
 public class TelegramAuthStateHandler {
@@ -27,6 +29,7 @@ public class TelegramAuthStateHandler {
      * Entry point to start the Telegram connection
      */
     public void startAuthentication() {
+        tdJsonService.send("{\"@type\":\"setLogVerbosityLevel\",\"new_verbosity_level\":1}");
         System.out.println(">>> Initializing TdJson Connection...");
         // This dummy request triggers the library to start sending Authorization updates
         tdJsonService.send("{\"@type\":\"getAuthorizationState\"}");
@@ -47,7 +50,16 @@ public class TelegramAuthStateHandler {
             // Pass all updates to the bridge service to check for new messages
             System.out.println("RAW TDLIB UPDATE:");
             System.out.println(json);
-            bridgeService.processUpdate(json);
+//            bridgeService.processUpdate(json);
+            // ONLY IMPORTANT UPDATES
+            if ("updateNewMessage".equals(type)
+                    || "updateMessageSendSucceeded".equals(type)) {
+
+                bridgeService.processUpdate(json);
+
+            }
+
+
 
         } catch (Exception e) {
             System.err.println("Error parsing update JSON: " + e.getMessage());

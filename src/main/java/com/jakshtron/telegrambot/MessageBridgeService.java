@@ -8,6 +8,8 @@ import org.springframework.stereotype.Service;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+[=-import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 @Service
 public class MessageBridgeService {
@@ -20,7 +22,8 @@ public class MessageBridgeService {
     //     SOURCE AND TARGET GROUP IDs zero to hero channel id below
     private static final long SOURCE_CHAT_ID = -1002560862430L;
 //    private static final long SOURCE_CHAT_ID = -1003944440181L;
-    private static final long TARGET_CHAT_ID = -1002523140853L;
+//    private static final long TARGET_CHAT_ID = -1002523140853L;
+    private static final long TARGET_CHAT_ID = -1003944440181L;
 
     // Prevent duplicate forwarding
     private final Set<Long> processedMessages =
@@ -41,13 +44,16 @@ public class MessageBridgeService {
             String type = node.path("@type").asText();
 
             // ONLY HANDLE NEW MESSAGES
-            if (!"updateNewMessage".equals(type)) {
+            if (!"updateNewMessage".equals(type) && !"updateChatLastMessage".equals(type)) {
                 return;
             }
 
-            JsonNode message = node.get("message");
-            if (message == null) {
-                return;
+            JsonNode message;
+
+            if ("updateNewMessage".equals(type)) {
+                message = node.get("message");
+            } else {
+                message = node.get("last_message");
             }
 
             long chatId = message.path("chat_id").asLong();
@@ -115,7 +121,16 @@ public class MessageBridgeService {
                             ? captionNode.get("text").asText() : "";
 
                     System.out.println("FORWARDING PHOTO ID: " + fileId);
-                    sendPhoto(fileId, caption, targetReplyMessageId);
+//                    sendPhoto(fileId, caption, targetReplyMessageId);
+                    // ✅ NEW METHOD (returns message ID)
+                    long targetMessageId =
+                            sendPhotoAndReturnId(fileId, caption, targetReplyMessageId);
+
+                    // ✅ STORE MAPPING (CRITICAL)
+                    if (targetMessageId != 0) {
+                        sourceToTargetMessageMap.put(sourceMessageId, targetMessageId);
+                        System.out.println("MAPPED PHOTO " + sourceMessageId + " -> " + targetMessageId);
+                    }
                     return; // Stop here for photos
                 }
             }
@@ -204,46 +219,127 @@ public class MessageBridgeService {
             e.printStackTrace();
         }
     }
+    private long sendPhotoAndReturnId(String fileRemoteId, String caption, Long replyToMessageId) {
 
-    private void sendPhoto(String fileRemoteId, String caption, Long replyToMessageId) {
         try {
-            ObjectNode root = objectMapper.createObjectNode();
+
+            ObjectMapper mapper = new ObjectMapper();
+
+            ObjectNode root = mapper.createObjectNode();
+
             root.put("@type", "sendMessage");
             root.put("chat_id", TARGET_CHAT_ID);
 
+            // Reply support
             if (replyToMessageId != null) {
-                ObjectNode replyNode = objectMapper.createObjectNode();
+                ObjectNode replyNode = mapper.createObjectNode();
                 replyNode.put("@type", "inputMessageReplyToMessage");
                 replyNode.put("message_id", replyToMessageId);
                 root.set("reply_to", replyNode);
             }
 
-            ObjectNode messageContent = objectMapper.createObjectNode();
+            // Message content
+            ObjectNode messageContent = mapper.createObjectNode();
             messageContent.put("@type", "inputMessagePhoto");
 
-            // Use the remote file ID so TDLib doesn't have to re-upload the file
-            ObjectNode photo = objectMapper.createObjectNode();
-            photo.put("@type", "inputThumbnail"); // This is a trick to pass the ID
-            // Note: For remote files, you usually use inputFileRemote
-            ObjectNode inputFile = objectMapper.createObjectNode();
+            ObjectNode inputFile = mapper.createObjectNode();
             inputFile.put("@type", "inputFileRemote");
             inputFile.put("id", fileRemoteId);
 
             messageContent.set("photo", inputFile);
 
-            // Add the caption
-            ObjectNode formattedText = objectMapper.createObjectNode();
-            formattedText.put("@type", "formattedText");
-            formattedText.put("text", caption);
-            messageContent.set("added_caption", formattedText);
+            // ✅ CORRECT caption
+            ObjectNode captionNode = mapper.createObjectNode();
+            captionNode.put("@type", "formattedText");
+            captionNode.put("text", caption);
+
+            messageContent.set("caption", captionNode);
 
             root.set("input_message_content", messageContent);
 
-            tdJsonService.send(objectMapper.writeValueAsString(root));
+            String json = mapper.writeValueAsString(root);
+
+            System.out.println("SEND PHOTO JSON:");
+            System.out.println(json);
+
+            tdJsonService.send(json);
+
+            // ⏳ WAIT FOR RESPONSE (same logic as sendMessage)
+            long start = System.currentTimeMillis();
+
+            while (System.currentTimeMillis() - start < 5000) {
+
+                String response =
+                        TdJsonLibrary.INSTANCE
+                                .td_json_client_receive(
+                                        tdJsonService.getClient(),
+                                        1.0
+                                );
+
+                if (response == null || response.isBlank()) {
+                    continue;
+                }
+
+                JsonNode responseNode = mapper.readTree(response);
+
+                if ("message".equals(responseNode.path("@type").asText())) {
+
+                    long targetMessageId =
+                            responseNode.path("id").asLong();
+
+                    System.out.println("PHOTO TARGET MESSAGE ID = " + targetMessageId);
+
+                    return targetMessageId;
+                }
+            }
+
         } catch (Exception e) {
             e.printStackTrace();
         }
+
+        return 0;
     }
+
+//    private void    sendPhoto(String fileRemoteId, String caption, Long replyToMessageId) {
+//        try {
+//            ObjectNode root = objectMapper.createObjectNode();
+//            root.put("@type", "sendMessage");
+//            root.put("chat_id", TARGET_CHAT_ID);
+//
+//            if (replyToMessageId != null) {
+//                ObjectNode replyNode = objectMapper.createObjectNode();
+//                replyNode.put("@type", "inputMessageReplyToMessage");
+//                replyNode.put("message_id", replyToMessageId);
+//                root.set("reply_to", replyNode);
+//            }
+//
+//            ObjectNode messageContent = objectMapper.createObjectNode();
+//            messageContent.put("@type", "inputMessagePhoto");
+//
+//            // Use the remote file ID so TDLib doesn't have to re-upload the file
+//            ObjectNode photo = objectMapper.createObjectNode();
+//            photo.put("@type", "inputThumbnail"); // This is a trick to pass the ID
+//            // Note: For remote files, you usually use inputFileRemote
+//            ObjectNode inputFile = objectMapper.createObjectNode();
+//            inputFile.put("@type", "inputFileRemote");
+//            inputFile.put("id", fileRemoteId);
+//
+//            messageContent.set("photo", inputFile);
+//
+//            // Add the caption
+//            ObjectNode captionNode  = objectMapper.createObjectNode();
+//            captionNode .put("@type", "formattedText");
+//            captionNode .put("text", caption);
+//            messageContent.set("caption", captionNode );
+//
+////            root.set("input_message_content", messageContent);
+//            root.set("input_message_content", messageContent);
+//
+//            tdJsonService.send(objectMapper.writeValueAsString(root));
+//        } catch (Exception e) {
+//            e.printStackTrace();
+//        }
+//    }
 
     private long sendMessage(String text, Long replyToMessageId
     ) {
