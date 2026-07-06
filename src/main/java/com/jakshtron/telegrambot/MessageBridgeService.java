@@ -20,10 +20,11 @@ public class MessageBridgeService {
             new ConcurrentHashMap<>();
 
     //     SOURCE AND TARGET GROUP IDs zero to hero channel id below
-    private static final long SOURCE_CHAT_ID = -1002560862430L;
-//    private static final long SOURCE_CHAT_ID = -1003944440181L;
+//    private static final long SOURCE_CHAT_ID = -1002560862430L;
 //    private static final long TARGET_CHAT_ID = -1002523140853L;
-    private static final long TARGET_CHAT_ID = -1003944440181L;
+
+    private static final long SOURCE_CHAT_ID = -1003944440181L;
+    private static final long TARGET_CHAT_ID = -1002523140853L;
 
     // Prevent duplicate forwarding
     private final Set<Long> processedMessages =
